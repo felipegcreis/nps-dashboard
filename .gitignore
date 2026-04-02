@@ -6,3 +6,5 @@ __pycache__/
 *.pyo
 .streamlit/credentials.toml
 app_dash.log
+Sisloc_NPS_CSAT_Dashboard_Fev2026_1.xlsx
+users.json
