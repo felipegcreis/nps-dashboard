@@ -5,21 +5,53 @@ import pandas as pd
 import plotly.express as px
 import plotly.graph_objects as go
 import numpy as np
-import google.generativeai as genai
+from google import genai
+from flask import session, redirect, request
 import uuid
 import threading
 import os
 
-api_key = os.environ.get("GEMINI_API_KEY", "")
-if not api_key:
-    # Tenta ler do arquivo .env manualmente caso dotenv nao esteja presente
+# ================================
+# Leitura do .env
+# ================================
+def read_env():
+    env = {}
     if os.path.exists(".env"):
         with open(".env") as f:
             for line in f:
-                if line.startswith("GEMINI_API_KEY="):
-                    api_key = line.strip().split("=", 1)[1].strip('\"\'')
+                line = line.strip()
+                if line and not line.startswith("#") and "=" in line:
+                    k, v = line.split("=", 1)
+                    env[k.strip()] = v.strip().strip('"\'')
+    return env
 
-genai.configure(api_key=api_key)
+_env = read_env()
+
+api_key = os.environ.get("GEMINI_API_KEY") or _env.get("GEMINI_API_KEY", "")
+secret_key = os.environ.get("SECRET_KEY") or _env.get("SECRET_KEY", "sisloc-secret")
+ADMIN_USER = os.environ.get("ADMIN_USER") or _env.get("ADMIN_USER", "")
+USERS_FILE = "users.json"
+
+import hashlib, json
+
+def hash_pwd(p):
+    return hashlib.sha256(p.encode()).hexdigest()
+
+def load_users():
+    if os.path.exists(USERS_FILE):
+        with open(USERS_FILE) as f:
+            return json.load(f)
+    return {}
+
+def save_users(users):
+    with open(USERS_FILE, "w") as f:
+        json.dump(users, f, indent=2)
+
+def check_credentials(username, password):
+    users = load_users()
+    return users.get(username) == hash_pwd(password)
+
+gemini_client = genai.Client(api_key=api_key)
 
 # ================================
 # Data Loading & Utilities
@@ -104,6 +136,182 @@ def section_header(text):
 # ================================
 app = Dash(__name__, external_stylesheets=[dbc.themes.DARKLY, "https://fonts.googleapis.com/css2?family=DM+Sans:wght@300;400;500&family=Syne:wght@600;700;800&display=swap"], suppress_callback_exceptions=True)
 app.title = "Sisloc - Dash"
+app.server.secret_key = secret_key
+
+# ================================
+# Autenticação Flask
+# ================================
+LOGIN_HTML = """
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Sisloc — Login</title>
+    <link href="https://fonts.googleapis.com/css2?family=Syne:wght@700;800&family=DM+Sans:wght@400;500&display=swap" rel="stylesheet">
+    <style>
+        * {{ box-sizing: border-box; margin: 0; padding: 0; }}
+        body {{ background: #080F17; display: flex; align-items: center; justify-content: center; min-height: 100vh; font-family: 'DM Sans', sans-serif; }}
+        .card {{ background: #101B27; border: 1px solid #1E2D3D; border-radius: 12px; padding: 2.5rem 2rem; width: 100%; max-width: 380px; }}
+        h1 {{ font-family: 'Syne', sans-serif; color: #E8EDF2; font-size: 1.6rem; margin-bottom: 0.3rem; }}
+        p {{ color: #4A6080; font-size: 0.9rem; margin-bottom: 2rem; }}
+        label {{ color: #4A6080; font-size: 0.8rem; text-transform: uppercase; letter-spacing: 1px; display: block; margin-bottom: 0.4rem; }}
+        input {{ width: 100%; background: #080F17; border: 1px solid #1E2D3D; border-radius: 6px; padding: 10px 14px; color: #E8EDF2; font-size: 1rem; margin-bottom: 1.2rem; outline: none; }}
+        input:focus {{ border-color: #1565C0; }}
+        button {{ width: 100%; background: #1565C0; color: white; border: none; border-radius: 6px; padding: 12px; font-size: 1rem; font-weight: 500; cursor: pointer; font-family: 'DM Sans', sans-serif; }}
+        button:hover {{ background: #1976D2; }}
+        .error {{ color: #B71C1C; font-size: 0.85rem; margin-bottom: 1rem; background: rgba(183,28,28,0.1); padding: 8px 12px; border-radius: 6px; border: 1px solid rgba(183,28,28,0.3); }}
+    </style>
+</head>
+<body>
+    <div class="card">
+        <h1>Sisloc Analytics</h1>
+        <p>Pesquisa de Satisfação — Fev/2026</p>
+        {error}
+        <form method="POST" action="/login">
+            <label>Usuário</label>
+            <input type="text" name="username" autocomplete="username" required autofocus>
+            <label>Senha</label>
+            <input type="password" name="password" autocomplete="current-password" required>
+            <button type="submit">Entrar</button>
+        </form>
+    </div>
+</body>
+</html>
+"""
+
+MANAGE_USERS_HTML = """
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Sisloc — Gerenciar Usuários</title>
+    <link href="https://fonts.googleapis.com/css2?family=Syne:wght@700;800&family=DM+Sans:wght@400;500&display=swap" rel="stylesheet">
+    <style>
+        * {{ box-sizing: border-box; margin: 0; padding: 0; }}
+        body {{ background: #080F17; font-family: 'DM Sans', sans-serif; color: #E8EDF2; padding: 2rem; }}
+        h1 {{ font-family: 'Syne', sans-serif; font-size: 1.6rem; margin-bottom: 0.3rem; }}
+        .sub {{ color: #4A6080; font-size: 0.9rem; margin-bottom: 2rem; }}
+        .card {{ background: #101B27; border: 1px solid #1E2D3D; border-radius: 10px; padding: 1.5rem; margin-bottom: 1.5rem; max-width: 600px; }}
+        h2 {{ font-family: 'Syne', sans-serif; font-size: 1.1rem; margin-bottom: 1rem; color: #E8EDF2; }}
+        label {{ color: #4A6080; font-size: 0.8rem; text-transform: uppercase; letter-spacing: 1px; display: block; margin-bottom: 0.4rem; margin-top: 0.8rem; }}
+        input {{ width: 100%; background: #080F17; border: 1px solid #1E2D3D; border-radius: 6px; padding: 9px 12px; color: #E8EDF2; font-size: 0.95rem; outline: none; }}
+        input:focus {{ border-color: #1565C0; }}
+        .btn {{ display: inline-block; padding: 9px 20px; border-radius: 6px; border: none; cursor: pointer; font-size: 0.9rem; font-family: 'DM Sans', sans-serif; font-weight: 500; margin-top: 1rem; }}
+        .btn-primary {{ background: #1565C0; color: white; }}
+        .btn-primary:hover {{ background: #1976D2; }}
+        .btn-danger {{ background: transparent; border: 1px solid #B71C1C; color: #B71C1C; padding: 4px 12px; margin-top: 0; font-size: 0.8rem; }}
+        .btn-danger:hover {{ background: rgba(183,28,28,0.1); }}
+        .msg-ok {{ color: #2E7D32; background: rgba(46,125,50,0.1); border: 1px solid rgba(46,125,50,0.3); padding: 8px 12px; border-radius: 6px; margin-bottom: 1rem; font-size: 0.85rem; }}
+        .msg-err {{ color: #B71C1C; background: rgba(183,28,28,0.1); border: 1px solid rgba(183,28,28,0.3); padding: 8px 12px; border-radius: 6px; margin-bottom: 1rem; font-size: 0.85rem; }}
+        table {{ width: 100%; border-collapse: collapse; }}
+        td, th {{ padding: 10px 12px; border-bottom: 1px solid #1E2D3D; text-align: left; font-size: 0.9rem; }}
+        th {{ color: #4A6080; font-size: 0.75rem; text-transform: uppercase; letter-spacing: 1px; }}
+        .badge-admin {{ background: #1565C0; color: white; padding: 2px 8px; border-radius: 4px; font-size: 0.75rem; }}
+        a.back {{ color: #4A6080; text-decoration: none; font-size: 0.85rem; display: inline-block; margin-bottom: 1.5rem; }}
+        a.back:hover {{ color: #E8EDF2; }}
+    </style>
+</head>
+<body>
+    <a class="back" href="/">← Voltar ao Dashboard</a>
+    <h1>Gerenciar Usuários</h1>
+    <p class="sub">Apenas você pode acessar esta página.</p>
+    {msg}
+    <div class="card">
+        <h2>Usuários Cadastrados</h2>
+        <table>
+            <tr><th>E-mail</th><th>Perfil</th><th></th></tr>
+            {user_rows}
+        </table>
+    </div>
+    <div class="card">
+        <h2>Adicionar / Atualizar Usuário</h2>
+        <form method="POST" action="/admin/users">
+            <input type="hidden" name="action" value="add">
+            <label>E-mail</label>
+            <input type="email" name="new_username" placeholder="nome@empresa.com.br" required>
+            <label>Senha</label>
+            <div style="position:relative;">
+                <input type="password" name="new_password" id="new_password" placeholder="Mínimo 6 caracteres" required style="padding-right:42px;">
+                <button type="button" onclick="var i=document.getElementById('new_password');i.type=i.type==='password'?'text':'password';this.textContent=i.type==='password'?'👁':'🙈';" style="position:absolute;right:0;top:0;height:100%;background:transparent;border:none;cursor:pointer;padding:0 12px;font-size:1rem;color:#4A6080;">👁</button>
+            </div>
+            <br>
+            <button type="submit" class="btn btn-primary">Salvar Usuário</button>
+        </form>
+    </div>
+</body>
+</html>
+"""
+
+@app.server.route("/login", methods=["GET", "POST"])
+def login():
+    error = ""
+    if request.method == "POST":
+        username = request.form.get("username", "").strip()
+        password = request.form.get("password", "").strip()
+        if check_credentials(username, password):
+            session["authenticated"] = True
+            session["username"] = username
+            return redirect("/")
+        error = '<div class="error">Usuário ou senha incorretos.</div>'
+    return LOGIN_HTML.format(error=error)
+
+@app.server.route("/logout")
+def logout():
+    session.clear()
+    return redirect("/login")
+
+@app.server.route("/admin/users", methods=["GET", "POST"])
+def manage_users():
+    if not session.get("authenticated") or session.get("username") != ADMIN_USER:
+        return redirect("/")
+    msg = ""
+    if request.method == "POST":
+        action = request.form.get("action")
+        if action == "add":
+            u = request.form.get("new_username", "").strip()
+            p = request.form.get("new_password", "").strip()
+            if u and len(p) >= 6:
+                users = load_users()
+                users[u] = hash_pwd(p)
+                save_users(users)
+                msg = f'<div class="msg-ok">Usuário <strong>{u}</strong> salvo com sucesso.</div>'
+            else:
+                msg = '<div class="msg-err">Preencha e-mail e senha (mín. 6 caracteres).</div>'
+        elif action == "delete":
+            u = request.form.get("del_username", "").strip()
+            if u and u != ADMIN_USER:
+                users = load_users()
+                users.pop(u, None)
+                save_users(users)
+                msg = f'<div class="msg-ok">Usuário <strong>{u}</strong> removido.</div>'
+            else:
+                msg = '<div class="msg-err">Não é possível remover o administrador.</div>'
+
+    users = load_users()
+    rows = ""
+    for u in users:
+        is_admin = u == ADMIN_USER
+        badge = '<span class="badge-admin">Admin</span>' if is_admin else ""
+        delete_btn = "" if is_admin else f"""
+            <form method="POST" action="/admin/users" style="display:inline">
+                <input type="hidden" name="action" value="delete">
+                <input type="hidden" name="del_username" value="{u}">
+                <button type="submit" class="btn btn-danger" onclick="return confirm('Remover {u}?')">Remover</button>
+            </form>"""
+        rows += f"<tr><td>{u}</td><td>{badge}</td><td>{delete_btn}</td></tr>"
+
+    return MANAGE_USERS_HTML.format(msg=msg, user_rows=rows)
+
+@app.server.before_request
+def require_login():
+    allowed = ["/login", "/admin/users", "/_dash-component-suites", "/_dash-layout",
+               "/_dash-dependencies", "/assets", "/_reload-hash", "/_dash-update-component"]
+    if any(request.path.startswith(p) for p in allowed):
+        return None
+    if not session.get("authenticated"):
+        return redirect("/login")
 
 # Global Styles inside Python
 SIDEBAR_STYLE = { 'position': 'fixed', 'top': 0, 'left': 0, 'bottom': 0, 'width': '16rem', 'padding': '2rem 1rem', 'backgroundColor': '#080F17', 'borderRight': '1px solid #1E2D3D', 'zIndex': 1 }
@@ -142,13 +350,13 @@ sidebar = html.Div([
         style={'color': '#000'}
     ),
     
-    html.Div(id='respondentes-count', style={'marginTop': '2rem', 'color': '#1565C0', 'fontWeight': 'bold', 'textAlign': 'center'})
+    html.Div(id='respondentes-count', style={'marginTop': '2rem', 'color': '#1565C0', 'fontWeight': 'bold', 'textAlign': 'center'}),
+    html.Div(id='sidebar-admin-link'),
+    html.A("Sair", href="/logout", style={'display': 'block', 'marginTop': '1rem', 'color': '#4A6080', 'fontSize': '0.85rem', 'textDecoration': 'none', 'textAlign': 'center'})
 ], style=SIDEBAR_STYLE)
 
 # Main App Layout
 chat_widget = html.Div([
-    dcc.Interval(id='stream-interval', interval=150, disabled=True),
-    dcc.Store(id='stream-id', data=None),
     dbc.Button("💬 Chat IA", id="open-chat-btn", color="primary", style={'position': 'fixed', 'bottom': '20px', 'right': '20px', 'borderRadius': '50px', 'padding': '10px 20px', 'boxShadow': '0 4px 8px rgba(0,0,0,0.3)', 'zIndex': 9999}),
     dbc.Offcanvas(
         html.Div([
@@ -159,11 +367,11 @@ chat_widget = html.Div([
             html.P("Pergunte para a Isa qualquer coisa sobre os dados da pesquisa.", style={'color': COLORS['sub']}),
             html.Div(id='chat-display', style={'height': '70vh', 'overflowY': 'auto', 'backgroundColor': COLORS['card'], 'padding': '1rem', 'borderRadius': '8px', 'border': f"1px solid {COLORS['border']}", 'marginBottom': '1rem'}),
             dbc.InputGroup([
-                dbc.Input(id='chat-input', placeholder="Sua pergunta...", autocomplete="off", style={'backgroundColor': COLORS['bg'], 'color': COLORS['text'], 'borderColor': COLORS['border']}),
+                dcc.Input(id='chat-input', placeholder="Sua pergunta...", autoComplete="off", debounce=False, n_submit=0, type='text', style={'flex': '1', 'backgroundColor': COLORS['bg'], 'color': COLORS['text'], 'borderColor': COLORS['border'], 'borderRadius': '4px 0 0 4px', 'padding': '8px 12px', 'border': f"1px solid {COLORS['border']}", 'outline': 'none', 'width': '100%'}),
                 dbc.Button("Enviar", id='chat-send-btn', color="primary")
             ])
         ]),
-        id="chat-offcanvas", title="🤖 Isa (Sua Assistente IA)", is_open=False, placement="end",
+        id="chat-offcanvas", title="Isa - Inteligência Artificial Sisloc", is_open=False, placement="end",
         style={'backgroundColor': COLORS['bg'], 'color': COLORS['text'], 'borderLeft': f"1px solid {COLORS['border']}"}
     )
 ])
@@ -172,6 +380,7 @@ app.layout = html.Div([
     dcc.Location(id='url'),
     dcc.Store(id='nps-drill-state', data=None),
     dcc.Store(id='chat-history', data=[]),
+    dcc.Store(id='stream-id', data=None),
     sidebar,
     html.Div(id='page-content', style=CONTENT_STYLE),
     chat_widget
@@ -188,6 +397,18 @@ def update_count(infra, prod):
     if not infra or not prod: return "0 respondentes"
     d = df_full[df_full['Infra'].isin(infra) & df_full['Produto'].isin(prod)]
     return f"{len(d)} respondentes filtrados"
+
+@callback(
+    Output('sidebar-admin-link', 'children'),
+    Input('url', 'pathname')
+)
+def show_admin_link(pathname):
+    if session.get("username") == ADMIN_USER:
+        return html.A("⚙ Gerenciar Usuários", href="/admin/users", style={
+            'display': 'block', 'marginTop': '2rem', 'color': '#1565C0',
+            'fontSize': '0.85rem', 'textDecoration': 'none', 'textAlign': 'center'
+        })
+    return None
 
 @callback(
     Output('page-content', 'children'),
@@ -430,18 +651,17 @@ def render_page(pathname, infra, prod, nps_drill):
 
 # Callback for Drilldown clicks
 from dash import ctx
+import json
+
 @callback(
     Output('nps-drill-state', 'data'),
-    [Input({'type': 'drill-btn', 'index': dash.ALL}, 'n_clicks'), Input('btn-nps-back', 'n_clicks')],
-    [State('nps-drill-state', 'data')]
+    Input({'type': 'drill-btn', 'index': dash.ALL}, 'n_clicks'),
+    State('nps-drill-state', 'data'),
+    prevent_initial_call=True
 )
-def handle_drilldown(drill_clicks, back_clicks, current_state):
+def handle_drill(drill_clicks, current_state):
     if not ctx.triggered: return current_state
     trigger_id = ctx.triggered[0]['prop_id']
-    if 'btn-nps-back' in trigger_id:
-        return None
-    
-    import json
     if 'drill-btn' in trigger_id:
         try:
             dict_id = json.loads(trigger_id.split('.')[0])
@@ -449,6 +669,14 @@ def handle_drilldown(drill_clicks, back_clicks, current_state):
         except:
             return current_state
     return current_state
+
+@callback(
+    Output('nps-drill-state', 'data', allow_duplicate=True),
+    Input('btn-nps-back', 'n_clicks'),
+    prevent_initial_call=True
+)
+def handle_back(n_clicks):
+    return None
 
 @callback(
     Output("chat-offcanvas", "is_open"),
@@ -471,24 +699,14 @@ def toggle_button_visibility(is_open):
         base_style['display'] = 'none'
     return base_style
 
-STREAMS = {}
-
-def stream_worker(sid, full_prompt):
+def call_gemini(full_prompt):
     try:
-        # Usando versão estável para evitar travamento da stream gRPC (preview lite 3.1 tem instabilidades conhecidas de conexão no meio da requisição)
-        model = genai.GenerativeModel('gemini-1.5-flash-latest')
-        response = model.generate_content(full_prompt, stream=True)
-        for chunk in response:
-            try:
-                if chunk.text:
-                    STREAMS[sid]['text'] += chunk.text
-            except Exception as read_err:
-                print(f"Erro lendo chunk gRPC: {read_err}")
-                continue
-        STREAMS[sid]['done'] = True
+        response = gemini_client.models.generate_content(
+            model='gemini-3.1-flash-lite-preview', contents=full_prompt
+        )
+        return response.text
     except Exception as e:
-        STREAMS[sid]['text'] += f"\\n\\n**(Falha na IA)**: Houve uma instabilidade de rede ou limite de cota da API ({str(e)}). Tente enviar a pergunta novamente."
-        STREAMS[sid]['done'] = True
+        return f"**(Falha na IA)**: {str(e)}"
 
 def render_chat(chat_history):
     display_children = []
@@ -510,11 +728,9 @@ def render_chat(chat_history):
     return display_children
 
 @callback(
-    Output('chat-history', 'data', allow_duplicate=True),
-    Output('stream-id', 'data'),
-    Output('stream-interval', 'disabled', allow_duplicate=True),
+    Output('chat-history', 'data'),
+    Output('chat-display', 'children'),
     Output('chat-input', 'value'),
-    Output('chat-display', 'children', allow_duplicate=True),
     Input('chat-send-btn', 'n_clicks'),
     Input('chat-input', 'n_submit'),
     State('chat-input', 'value'),
@@ -523,65 +739,34 @@ def render_chat(chat_history):
     State('filter-prod', 'value'),
     prevent_initial_call=True
 )
-def start_chat(n_clicks, n_submit, user_message, chat_history, infra, prod):
-    if not user_message: return dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update
-    
+def send_chat(n_clicks, n_submit, user_message, chat_history, infra, prod):
+    if not user_message:
+        return dash.no_update, dash.no_update, dash.no_update
+
     if chat_history is None:
         chat_history = []
-        
-    chat_history.append({'role': 'user', 'parts': [user_message]})
-    chat_history.append({'role': 'model', 'parts': [""]}) # Placeholder
-    
-    display = render_chat(chat_history)
-    
+
     d = df_full[df_full['Infra'].isin(infra) & df_full['Produto'].isin(prod)] if infra and prod else df_full
     nps_g = nps_score(d['NPS_Cl'])
     total_resp = len(d)
     produtos = list(d['Produto'].dropna().unique())
-    
+
     context = (f"Seu nome é Isa. Você é a inteligência artificial analisando a pesquisa NPS/CSAT da Sisloc Software. "
                f"Responda ao usuário com base no contexto filtrado atual: "
                f"Total de respondentes: {total_resp}. NPS Geral: {nps_g:.0f}. Produtos: {produtos}. "
                f"Promotores (9-10), Neutros (7-8), Detratores (0-6). Start tem NPS +100. Premium tem NPS negativo (-8). "
                f"O foco principal dos detratores é Suporte pós-venda e implantação de NFS-e pagas. ")
-    
-    history_text = "\\n".join([f"{m['role']}: {m['parts'][0]}" for m in chat_history[:-1]])
-    full_prompt = f"{context}\\n\\nHistórico da conversa:\\n{history_text}\\n\\nResponda como a assistente Isa. Importante: Use SEMPRE formatação rica em Markdown na sua resposta:"
-    
-    sid = str(uuid.uuid4())
-    STREAMS[sid] = {'text': '', 'done': False}
-    
-    threading.Thread(target=stream_worker, args=(sid, full_prompt)).start()
-    
-    return chat_history, sid, False, "", display
 
-@callback(
-    Output('chat-display', 'children'),
-    Output('chat-history', 'data'),
-    Output('stream-interval', 'disabled'),
-    Input('stream-interval', 'n_intervals'),
-    State('stream-id', 'data'),
-    State('chat-history', 'data'),
-    prevent_initial_call=True
-)
-def update_stream(n, sid, chat_history):
-    if not sid or sid not in STREAMS or not chat_history: 
-        return dash.no_update, dash.no_update, dash.no_update
-        
-    current_text = STREAMS[sid]['text']
-    is_done = STREAMS[sid]['done']
-    
-    cursor = " █" if not is_done else ""
-    chat_history[-1]['parts'] = [current_text + cursor]
+    history_text = "\n".join([f"{m['role']}: {m['parts'][0]}" for m in chat_history])
+    full_prompt = f"{context}\n\nHistórico:\n{history_text}\n\nUsuário: {user_message}\n\nResponda como Isa em Markdown:"
+
+    resposta = call_gemini(full_prompt)
+
+    chat_history.append({'role': 'user', 'parts': [user_message]})
+    chat_history.append({'role': 'model', 'parts': [resposta]})
+
     display = render_chat(chat_history)
-    
-    if is_done:
-        chat_history[-1]['parts'] = [current_text]
-        display = render_chat(chat_history)
-        del STREAMS[sid]
-        return display, chat_history, True
-        
-    return display, chat_history, False
+    return chat_history, display, ""
 
 if __name__ == '__main__':
     app.run(debug=False, host='0.0.0.0', port=8051)
