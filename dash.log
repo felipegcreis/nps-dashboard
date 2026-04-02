@@ -1,0 +1,94 @@
+nohup: ignoring input
+/home/felipereis/projetos/nps/app_dash.py:8: FutureWarning: 
+
+All support for the `google.generativeai` package has ended. It will no longer be receiving 
+updates or bug fixes. Please switch to the `google.genai` package as soon as possible.
+See README for more details:
+
+https://github.com/google-gemini/deprecated-generative-ai-python/blob/main/README.md
+
+  import google.generativeai as genai
+Dash is running on http://0.0.0.0:8051/
+
+ * Serving Flask app 'app_dash'
+ * Debug mode: off
+[31m[1mWARNING: This is a development server. Do not use it in a production deployment. Use a production WSGI server instead.[0m
+ * Running on all addresses (0.0.0.0)
+ * Running on http://127.0.0.1:8051
+ * Running on http://172.26.47.27:8051
+[33mPress CTRL+C to quit[0m
+127.0.0.1 - - [01/Apr/2026 23:15:44] "HEAD / HTTP/1.1" 200 -
+127.0.0.1 - - [01/Apr/2026 23:16:36] "GET / HTTP/1.1" 200 -
+127.0.0.1 - - [01/Apr/2026 23:16:36] "GET /_dash-layout HTTP/1.1" 200 -
+127.0.0.1 - - [01/Apr/2026 23:16:36] "GET /_dash-dependencies HTTP/1.1" 200 -
+127.0.0.1 - - [01/Apr/2026 23:16:37] "GET /_favicon.ico?v=4.1.0 HTTP/1.1" 200 -
+127.0.0.1 - - [01/Apr/2026 23:16:37] "POST /_dash-update-component HTTP/1.1" 200 -
+127.0.0.1 - - [01/Apr/2026 23:16:37] "POST /_dash-update-component HTTP/1.1" 200 -
+127.0.0.1 - - [01/Apr/2026 23:16:37] "[36mGET /_dash-component-suites/dash/dcc/async-dropdown.js HTTP/1.1[0m" 304 -
+127.0.0.1 - - [01/Apr/2026 23:16:37] "POST /_dash-update-component HTTP/1.1" 200 -
+127.0.0.1 - - [01/Apr/2026 23:16:38] "[36mGET /_dash-component-suites/dash/dcc/async-graph.js HTTP/1.1[0m" 304 -
+127.0.0.1 - - [01/Apr/2026 23:16:38] "[36mGET /_dash-component-suites/plotly/package_data/plotly.min.js HTTP/1.1[0m" 304 -
+127.0.0.1 - - [01/Apr/2026 23:16:39] "POST /_dash-update-component HTTP/1.1" 200 -
+127.0.0.1 - - [01/Apr/2026 23:16:39] "POST /_dash-update-component HTTP/1.1" 200 -
+127.0.0.1 - - [01/Apr/2026 23:16:48] "POST /_dash-update-component HTTP/1.1" 200 -
+127.0.0.1 - - [01/Apr/2026 23:16:51] "POST /_dash-update-component HTTP/1.1" 200 -
+127.0.0.1 - - [01/Apr/2026 23:16:53] "GET / HTTP/1.1" 200 -
+127.0.0.1 - - [01/Apr/2026 23:16:53] "GET /_dash-layout HTTP/1.1" 200 -
+127.0.0.1 - - [01/Apr/2026 23:16:53] "GET /_dash-dependencies HTTP/1.1" 200 -
+127.0.0.1 - - [01/Apr/2026 23:16:53] "GET /_favicon.ico?v=4.1.0 HTTP/1.1" 200 -
+127.0.0.1 - - [01/Apr/2026 23:16:54] "POST /_dash-update-component HTTP/1.1" 200 -
+127.0.0.1 - - [01/Apr/2026 23:16:54] "POST /_dash-update-component HTTP/1.1" 200 -
+127.0.0.1 - - [01/Apr/2026 23:16:54] "[36mGET /_dash-component-suites/dash/dcc/async-dropdown.js HTTP/1.1[0m" 304 -
+127.0.0.1 - - [01/Apr/2026 23:16:54] "POST /_dash-update-component HTTP/1.1" 200 -
+127.0.0.1 - - [01/Apr/2026 23:16:54] "[36mGET /_dash-component-suites/dash/dcc/async-graph.js HTTP/1.1[0m" 304 -
+127.0.0.1 - - [01/Apr/2026 23:16:54] "[36mGET /_dash-component-suites/plotly/package_data/plotly.min.js HTTP/1.1[0m" 304 -
+127.0.0.1 - - [01/Apr/2026 23:16:55] "POST /_dash-update-component HTTP/1.1" 200 -
+127.0.0.1 - - [01/Apr/2026 23:17:19] "POST /_dash-update-component HTTP/1.1" 200 -
+127.0.0.1 - - [01/Apr/2026 23:17:19] "POST /_dash-update-component HTTP/1.1" 200 -
+127.0.0.1 - - [01/Apr/2026 23:17:26] "POST /_dash-update-component HTTP/1.1" 200 -
+127.0.0.1 - - [01/Apr/2026 23:17:28] "POST /_dash-update-component HTTP/1.1" 200 -
+127.0.0.1 - - [01/Apr/2026 23:17:29] "POST /_dash-update-component HTTP/1.1" 200 -
+127.0.0.1 - - [01/Apr/2026 23:17:30] "POST /_dash-update-component HTTP/1.1" 200 -
+127.0.0.1 - - [01/Apr/2026 23:17:30] "POST /_dash-update-component HTTP/1.1" 200 -
+127.0.0.1 - - [01/Apr/2026 23:17:31] "POST /_dash-update-component HTTP/1.1" 200 -
+127.0.0.1 - - [01/Apr/2026 23:17:31] "POST /_dash-update-component HTTP/1.1" 200 -
+127.0.0.1 - - [01/Apr/2026 23:17:33] "POST /_dash-update-component HTTP/1.1" 200 -
+127.0.0.1 - - [01/Apr/2026 23:17:34] "POST /_dash-update-component HTTP/1.1" 200 -
+127.0.0.1 - - [01/Apr/2026 23:17:34] "GET /_dash-component-suites/dash/dcc/async-markdown.js HTTP/1.1" 200 -
+127.0.0.1 - - [01/Apr/2026 23:17:34] "GET /_dash-component-suites/dash/dcc/async-highlight.js HTTP/1.1" 200 -
+127.0.0.1 - - [01/Apr/2026 23:20:47] "POST /_dash-update-component HTTP/1.1" 200 -
+127.0.0.1 - - [02/Apr/2026 06:48:54] "POST /_dash-update-component HTTP/1.1" 200 -
+127.0.0.1 - - [02/Apr/2026 06:48:56] "POST /_dash-update-component HTTP/1.1" 200 -
+127.0.0.1 - - [02/Apr/2026 06:51:00] "GET / HTTP/1.1" 200 -
+127.0.0.1 - - [02/Apr/2026 06:51:00] "GET /_dash-dependencies HTTP/1.1" 200 -
+127.0.0.1 - - [02/Apr/2026 06:51:00] "GET /_dash-layout HTTP/1.1" 200 -
+127.0.0.1 - - [02/Apr/2026 06:51:00] "POST /_dash-update-component HTTP/1.1" 200 -
+127.0.0.1 - - [02/Apr/2026 06:51:00] "POST /_dash-update-component HTTP/1.1" 200 -
+127.0.0.1 - - [02/Apr/2026 06:51:00] "[36mGET /_dash-component-suites/dash/dcc/async-dropdown.js HTTP/1.1[0m" 304 -
+127.0.0.1 - - [02/Apr/2026 06:51:00] "POST /_dash-update-component HTTP/1.1" 200 -
+127.0.0.1 - - [02/Apr/2026 06:51:00] "[36mGET /_dash-component-suites/dash/dcc/async-graph.js HTTP/1.1[0m" 304 -
+127.0.0.1 - - [02/Apr/2026 06:51:01] "[36mGET /_dash-component-suites/plotly/package_data/plotly.min.js HTTP/1.1[0m" 304 -
+127.0.0.1 - - [02/Apr/2026 06:51:05] "POST /_dash-update-component HTTP/1.1" 200 -
+127.0.0.1 - - [02/Apr/2026 06:51:06] "POST /_dash-update-component HTTP/1.1" 200 -
+127.0.0.1 - - [02/Apr/2026 06:51:15] "POST /_dash-update-component HTTP/1.1" 200 -
+127.0.0.1 - - [02/Apr/2026 06:51:19] "POST /_dash-update-component HTTP/1.1" 200 -
+127.0.0.1 - - [02/Apr/2026 06:54:13] "GET /nps HTTP/1.1" 200 -
+127.0.0.1 - - [02/Apr/2026 06:54:13] "GET /_dash-layout HTTP/1.1" 200 -
+127.0.0.1 - - [02/Apr/2026 06:54:13] "GET /_dash-dependencies HTTP/1.1" 200 -
+127.0.0.1 - - [02/Apr/2026 06:54:14] "POST /_dash-update-component HTTP/1.1" 200 -
+127.0.0.1 - - [02/Apr/2026 06:54:14] "POST /_dash-update-component HTTP/1.1" 200 -
+127.0.0.1 - - [02/Apr/2026 06:54:14] "[36mGET /_dash-component-suites/dash/dcc/async-dropdown.js HTTP/1.1[0m" 304 -
+127.0.0.1 - - [02/Apr/2026 06:54:14] "POST /_dash-update-component HTTP/1.1" 200 -
+127.0.0.1 - - [02/Apr/2026 06:54:14] "GET /_favicon.ico?v=4.1.0 HTTP/1.1" 200 -
+127.0.0.1 - - [02/Apr/2026 06:54:14] "[36mGET /_dash-component-suites/dash/dcc/async-graph.js HTTP/1.1[0m" 304 -
+127.0.0.1 - - [02/Apr/2026 06:54:14] "[36mGET /_dash-component-suites/plotly/package_data/plotly.min.js HTTP/1.1[0m" 304 -
+127.0.0.1 - - [02/Apr/2026 06:54:15] "GET /nps HTTP/1.1" 200 -
+127.0.0.1 - - [02/Apr/2026 06:54:16] "GET /_dash-layout HTTP/1.1" 200 -
+127.0.0.1 - - [02/Apr/2026 06:54:16] "GET /_dash-dependencies HTTP/1.1" 200 -
+127.0.0.1 - - [02/Apr/2026 06:54:16] "GET /_favicon.ico?v=4.1.0 HTTP/1.1" 200 -
+127.0.0.1 - - [02/Apr/2026 06:54:16] "POST /_dash-update-component HTTP/1.1" 200 -
+127.0.0.1 - - [02/Apr/2026 06:54:16] "[36mGET /_dash-component-suites/dash/dcc/async-dropdown.js HTTP/1.1[0m" 304 -
+127.0.0.1 - - [02/Apr/2026 06:54:16] "POST /_dash-update-component HTTP/1.1" 200 -
+127.0.0.1 - - [02/Apr/2026 06:54:16] "POST /_dash-update-component HTTP/1.1" 200 -
+127.0.0.1 - - [02/Apr/2026 06:54:17] "[36mGET /_dash-component-suites/dash/dcc/async-graph.js HTTP/1.1[0m" 304 -
+127.0.0.1 - - [02/Apr/2026 06:54:17] "[36mGET /_dash-component-suites/plotly/package_data/plotly.min.js HTTP/1.1[0m" 304 -

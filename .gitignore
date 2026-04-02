@@ -5,3 +5,4 @@ __pycache__/
 *.pyc
 *.pyo
 .streamlit/credentials.toml
+app_dash.log
