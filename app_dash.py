@@ -386,7 +386,7 @@ def require_login():
         return redirect("/login")
 
 # Global Styles inside Python
-SIDEBAR_STYLE = { 'position': 'fixed', 'top': 0, 'left': 0, 'bottom': 0, 'width': '16rem', 'padding': '2rem 1rem', 'backgroundColor': '#080F17', 'borderRight': '1px solid #1E2D3D', 'zIndex': 1050 }
+SIDEBAR_STYLE = { 'position': 'fixed', 'top': 0, 'left': 0, 'bottom': 0, 'width': '16rem', 'padding': '2rem 1rem', 'backgroundColor': '#080F17', 'borderRight': '1px solid #1E2D3D', 'zIndex': 1050, 'overflowY': 'auto', 'overflowX': 'hidden' }
 CONTENT_STYLE = { 'marginLeft': '16rem', 'padding': '2rem 2rem', 'backgroundColor': '#080F17', 'minHeight': '100vh', 'fontFamily': 'DM Sans' }
 
 sidebar = html.Div([
