@@ -636,7 +636,7 @@ def render_page(pathname, infra, prod, cross_filter, nps_drill):
                 html.H2("📈 Análise NPS", style={'fontFamily':'Syne'}),
                 kpis,
                 dbc.Row([
-                    dbc.Col([html.Strong("Histograma"), dcc.Graph(figure=fig_hist)], xs=12, md=8),
+                    dbc.Col([html.Strong("Histograma"), dcc.Graph(id={'type': 'cf-graph', 'index': 'nps-hist'}, figure=fig_hist)], xs=12, md=8),
                     dbc.Col([html.Strong("Gauge"), dcc.Graph(figure=fig_gauge)], xs=12, md=4)
                 ]),
                 section_header("NPS por Produto"),
@@ -839,6 +839,13 @@ def update_cross_filter(all_clicks, all_ids, current_cf):
     elif graph_id == 'radar':
         val = point.get('theta')  # nome da dimensão no eixo angular
         new_cf = {} if cf.get('CSAT_dim') == val else {'CSAT_dim': val}
+    elif graph_id == 'nps-hist':
+        nps_val = point.get('x')
+        if nps_val is None:
+            return current_cf or {}
+        nps_val = float(nps_val)
+        val = 'Promotor' if nps_val >= 9 else ('Neutro' if nps_val >= 7 else 'Detrator')
+        new_cf = {} if cf.get('NPS_Cl') == val else {'NPS_Cl': val}
     else:
         return current_cf or {}
 
