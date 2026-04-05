@@ -557,7 +557,7 @@ def render_page(pathname, infra, prod, cross_filter, nps_drill):
             ]),
             dbc.Row([
                 dbc.Col([section_header("Radar CSAT"), dcc.Graph(figure=fig_radar)], xs=12, md=4),
-                dbc.Col([section_header("Média CSAT por Dimensão"), dcc.Graph(id={'type': 'cf-graph', 'index': 'csat-bar'}, figure=fig_bar_csat)], xs=12, md=8)
+                dbc.Col([section_header("Média CSAT por Dimensão"), dcc.Graph(figure=fig_bar_csat)], xs=12, md=8)
             ])
         ])
         
