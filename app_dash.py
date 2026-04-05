@@ -69,7 +69,36 @@ Regras que você NUNCA deve quebrar:
 # Data Loading & Utilities
 # ================================
 def load_data():
-    df = pd.read_json("pesquisa_data.json")
+    df = pd.read_excel("nps.xlsx")
+
+    # Renomear colunas longas para nomes curtos usados no app
+    df = df.rename(columns={
+        'Qual a probabilidade de recomendar  a Sisloc a um amigo ou colega?': 'NPS',
+        'Considerando sua experiência geral, você está satisfeito com o sistema da Sisloc?': 'CS_Sis',
+        'Considerando sua experiência geral, quanto você está satisfeito com o Suporte da Sisloc?': 'CS_Sup',
+        'Considerando sua experiência geral, quanto você está satisfeito com a Sisloc Academy (Universidade Corporativa)?': 'CS_Aca',
+        'Considerando sua experiência geral, quanto você está satisfeito com o atendimento da área Comercial da Sisloc?': 'CS_Com',
+        'Considerando sua experiência geral, quanto você está satisfeito com o Sisloc In Cloud?': 'CS_Cld',
+        'O que você mais gosta na Sisloc? Por quê? (Produto, atendimento, suporte, pessoas, processos ou outros pontos positivos).': 'Positivos',
+        'O que você acredita que a Sisloc pode melhorar para oferecer uma experiência ainda melhor?': 'Melhorias',
+        'Se pudéssemos melhorar apenas UMA coisa hoje, o que faria mais diferença para você?': 'Uma_Melhoria',
+    })
+
+    # NPS numérico e classificação
+    df['NPS'] = pd.to_numeric(df['NPS'], errors='coerce')
+    df['NPS_Cl'] = df['NPS'].apply(
+        lambda x: 'Promotor' if x >= 9 else ('Neutro' if x >= 7 else 'Detrator')
+        if pd.notna(x) else None
+    )
+
+    # Infra derivado de Cloud(S/N)
+    df['Infra'] = df['Cloud(S/N)'].map({'S': 'Cloud', 'N': 'On-Premises'})
+
+    # CSAT numérico
+    csat_map = {'Insatisfeito': 1, 'Pouco Satisfeito': 2, 'Satisfeito': 3, 'Muito Satisfeito': 4}
+    for col in ['CS_Sis', 'CS_Sup', 'CS_Aca', 'CS_Com', 'CS_Cld']:
+        df[f'{col}_n'] = df[col].map(csat_map)
+
     prod_order = ["Start", "Light", "Sys", "Premium", "Platinum", "Custom"]
     df['Produto'] = pd.Categorical(df['Produto'], categories=prod_order, ordered=True)
     return df
