@@ -494,6 +494,11 @@ def render_page(pathname, infra, prod, cross_filter, nps_drill):
         df = df[df['Produto'] == cf['Produto']]
     if cf.get('NPS_Cl'):
         df = df[df['NPS_Cl'] == cf['NPS_Cl']]
+    _CSAT_DIM_COL = {'Sistema': 'CS_Sis', 'Suporte': 'CS_Sup', 'Academy': 'CS_Aca', 'Comercial': 'CS_Com', 'Cloud': 'CS_Cld'}
+    if cf.get('CSAT_dim'):
+        _col = _CSAT_DIM_COL.get(cf['CSAT_dim'])
+        if _col:
+            df = df[df[f'{_col}_n'].notna()]
 
     N_total = len(df)
     
@@ -556,8 +561,8 @@ def render_page(pathname, infra, prod, cross_filter, nps_drill):
                 dbc.Col([section_header("NPS Classes"), dcc.Graph(id={'type': 'cf-graph', 'index': 'donut'}, figure=fig_donut)], xs=12, md=4)
             ]),
             dbc.Row([
-                dbc.Col([section_header("Radar CSAT"), dcc.Graph(figure=fig_radar)], xs=12, md=4),
-                dbc.Col([section_header("Média CSAT por Dimensão"), dcc.Graph(figure=fig_bar_csat)], xs=12, md=8)
+                dbc.Col([section_header("Radar CSAT"), dcc.Graph(id={'type': 'cf-graph', 'index': 'radar'}, figure=fig_radar)], xs=12, md=4),
+                dbc.Col([section_header("Média CSAT por Dimensão"), dcc.Graph(id={'type': 'cf-graph', 'index': 'csat-bar'}, figure=fig_bar_csat)], xs=12, md=8)
             ])
         ])
         
@@ -799,8 +804,11 @@ def update_cross_filter(all_clicks, all_ids, current_cf):
         val = point.get('label') or point.get('id', '').split('/')[-1]
         new_cf = {} if cf.get('Produto') == val else {'Produto': val}
     elif graph_id == 'csat-bar':
-        # CSAT bar mostra dimensões, não Produto — não filtra
-        return current_cf or {}
+        val = point.get('x')  # nome da dimensão: 'Sistema', 'Suporte', etc.
+        new_cf = {} if cf.get('CSAT_dim') == val else {'CSAT_dim': val}
+    elif graph_id == 'radar':
+        val = point.get('theta')  # nome da dimensão no eixo angular
+        new_cf = {} if cf.get('CSAT_dim') == val else {'CSAT_dim': val}
     else:
         return current_cf or {}
 
@@ -831,6 +839,8 @@ def update_cross_filter_ui(cf):
         parts.append(f"Produto: {cf['Produto']}")
     if cf.get('NPS_Cl'):
         parts.append(f"Classe: {cf['NPS_Cl']}")
+    if cf.get('CSAT_dim'):
+        parts.append(f"Dimensão CSAT: {cf['CSAT_dim']}")
 
     badge = html.Div([
         html.Div("Seleção ativa:", style={'color': '#E65100', 'fontSize': '0.75rem', 'textTransform': 'uppercase', 'fontWeight': 'bold', 'marginBottom': '0.25rem'}),
