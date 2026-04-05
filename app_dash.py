@@ -1,15 +1,17 @@
 import dash
-from dash import Dash, html, dcc, Input, Output, State, callback
+from dash import Dash, html, dcc, Input, Output, State, callback, ctx
 import dash_bootstrap_components as dbc
 import pandas as pd
 import plotly.express as px
 import plotly.graph_objects as go
 import numpy as np
 from google import genai
+from google.genai import types as genai_types
 from flask import session, redirect, request
 import uuid
 import threading
 import os
+import rag
 
 # ================================
 # Leitura do .env
@@ -53,6 +55,16 @@ def check_credentials(username, password):
 
 gemini_client = genai.Client(api_key=api_key)
 
+ISA_SYSTEM_PROMPT = """Você é Isa, especialista em análise de pesquisas de NPS e CSAT da Sisloc Software.
+
+Regras que você NUNCA deve quebrar:
+1. Respostas diretas, objetivas e claras — sem rodeios, sem introduções longas.
+2. Use sempre dados concretos: números, percentuais, nomes de produtos/clientes quando relevante.
+3. SEMPRE termine sua resposta propondo uma próxima ação ao usuário (ex: "Quer ver as principais reclamações dos detratores do Premium?").
+4. Quando citar dados de fora do filtro ativo do dashboard, deixe isso explícito (ex: "⚠️ Este dado é do conjunto completo, fora do seu filtro atual.").
+5. Responda em Markdown.
+6. Nunca invente dados — se não souber, diga que não há informação suficiente."""
+
 # ================================
 # Data Loading & Utilities
 # ================================
@@ -63,6 +75,7 @@ def load_data():
     return df
 
 df_full = load_data()
+rag_index = rag.load_or_build_index(df_full.to_dict('records'), gemini_client)
 
 COLORS = {
     'bg': '#080F17', 'card': '#101B27', 'border': '#1E2D3D', 'navy': '#0D1B2A',
@@ -120,7 +133,7 @@ def quote_card(texto, classe, score, produto, infra):
         html.Div([
             html.Span(f"{classe.upper()} • {score}", style={'padding': '2px 6px', 'borderRadius': '4px', 'fontWeight': 'bold', 'color': 'white', 'fontSize': '0.75rem', 'backgroundColor': b_col}),
             html.Span(f"{produto} • {infra}", style={'color': '#4A6080', 'fontSize': '0.85rem'})
-        ], style={'display': 'flex', 'justifyContent': 'space-between', 'alignItems': 'center', 'marginBottom': '0.5rem'}),
+        ], style={'display': 'flex', 'justifyContent': 'space-between', 'alignItems': 'center', 'flexWrap': 'wrap', 'gap': '4px', 'marginBottom': '0.5rem'}),
         html.Div(f'"{texto}"', style={'color': '#E8EDF2', 'fontStyle': 'italic', 'lineHeight': '1.4'})
     ], style={'backgroundColor': '#101B27', 'border': '1px solid #1E2D3D', 'borderRadius': '6px', 'padding': '1rem', 'marginBottom': '0.8rem'})
 
@@ -314,7 +327,7 @@ def require_login():
         return redirect("/login")
 
 # Global Styles inside Python
-SIDEBAR_STYLE = { 'position': 'fixed', 'top': 0, 'left': 0, 'bottom': 0, 'width': '16rem', 'padding': '2rem 1rem', 'backgroundColor': '#080F17', 'borderRight': '1px solid #1E2D3D', 'zIndex': 1 }
+SIDEBAR_STYLE = { 'position': 'fixed', 'top': 0, 'left': 0, 'bottom': 0, 'width': '16rem', 'padding': '2rem 1rem', 'backgroundColor': '#080F17', 'borderRight': '1px solid #1E2D3D', 'zIndex': 1050 }
 CONTENT_STYLE = { 'marginLeft': '16rem', 'padding': '2rem 2rem', 'backgroundColor': '#080F17', 'minHeight': '100vh', 'fontFamily': 'DM Sans' }
 
 sidebar = html.Div([
@@ -353,7 +366,7 @@ sidebar = html.Div([
     html.Div(id='respondentes-count', style={'marginTop': '2rem', 'color': '#1565C0', 'fontWeight': 'bold', 'textAlign': 'center'}),
     html.Div(id='sidebar-admin-link'),
     html.A("Sair", href="/logout", style={'display': 'block', 'marginTop': '1rem', 'color': '#4A6080', 'fontSize': '0.85rem', 'textDecoration': 'none', 'textAlign': 'center'})
-], style=SIDEBAR_STYLE)
+], id='sidebar', style=SIDEBAR_STYLE)
 
 # Main App Layout
 chat_widget = html.Div([
@@ -381,6 +394,10 @@ app.layout = html.Div([
     dcc.Store(id='nps-drill-state', data=None),
     dcc.Store(id='chat-history', data=[]),
     dcc.Store(id='stream-id', data=None),
+    dcc.Store(id='sidebar-open', data=False),
+    dcc.Interval(id='stream-interval', interval=300, n_intervals=0, disabled=False),
+    html.Button("☰", id='hamburger-btn'),
+    html.Div(id='sidebar-overlay'),
     sidebar,
     html.Div(id='page-content', style=CONTENT_STYLE),
     chat_widget
@@ -411,6 +428,24 @@ def show_admin_link(pathname):
     return None
 
 @callback(
+    Output('sidebar', 'className'),
+    Output('sidebar-overlay', 'className'),
+    Output('sidebar-open', 'data'),
+    [Input('hamburger-btn', 'n_clicks'),
+     Input('sidebar-overlay', 'n_clicks'),
+     Input('url', 'pathname')],
+    State('sidebar-open', 'data'),
+    prevent_initial_call=True
+)
+def toggle_sidebar(ham_clicks, overlay_clicks, pathname, is_open):
+    trigger = ctx.triggered_id
+    if trigger in ('hamburger-btn', 'sidebar-overlay'):
+        new_open = not is_open
+    else:
+        new_open = False
+    return ('sidebar-open' if new_open else '', 'overlay-open' if new_open else '', new_open)
+
+@callback(
     Output('page-content', 'children'),
     [Input('url', 'pathname'), Input('filter-infra', 'value'), Input('filter-prod', 'value'), Input('nps-drill-state', 'data')]
 )
@@ -428,11 +463,11 @@ def render_page(pathname, infra, prod, nps_drill):
 
     if pathname == '/':
         kpis = dbc.Row([
-            dbc.Col(kpi_card("NPS Geral", f"{overall_nps:+.0f}", nps_color(overall_nps))),
-            dbc.Col(kpi_card("Promotores", f"{prom_cnt}", COLORS['green'], f"{prom_cnt/N_total*100:.1f}%" if N_total else "0%")),
-            dbc.Col(kpi_card("Neutros", f"{neut_cnt}", COLORS['amber'], f"{neut_cnt/N_total*100:.1f}%" if N_total else "0%")),
-            dbc.Col(kpi_card("Detratores", f"{det_cnt}", COLORS['red'], f"{det_cnt/N_total*100:.1f}%" if N_total else "0%")),
-            dbc.Col(kpi_card("Respondentes", f"{N_total}", COLORS['blue']))
+            dbc.Col(kpi_card("NPS Geral", f"{overall_nps:+.0f}", nps_color(overall_nps)), xs=6, md=True),
+            dbc.Col(kpi_card("Promotores", f"{prom_cnt}", COLORS['green'], f"{prom_cnt/N_total*100:.1f}%" if N_total else "0%"), xs=6, md=True),
+            dbc.Col(kpi_card("Neutros", f"{neut_cnt}", COLORS['amber'], f"{neut_cnt/N_total*100:.1f}%" if N_total else "0%"), xs=6, md=True),
+            dbc.Col(kpi_card("Detratores", f"{det_cnt}", COLORS['red'], f"{det_cnt/N_total*100:.1f}%" if N_total else "0%"), xs=6, md=True),
+            dbc.Col(kpi_card("Respondentes", f"{N_total}", COLORS['blue']), xs=6, md=True)
         ])
         
         # NPS Bar
@@ -476,12 +511,12 @@ def render_page(pathname, infra, prod, nps_drill):
             html.H2("📊 Visão Geral Executiva", style={'fontFamily':'Syne'}),
             kpis,
             dbc.Row([
-                dbc.Col([section_header("NPS por Produto"), dcc.Graph(figure=fig_nps_prod)], width=8),
-                dbc.Col([section_header("NPS Classes"), dcc.Graph(figure=fig_donut)], width=4)
+                dbc.Col([section_header("NPS por Produto"), dcc.Graph(figure=fig_nps_prod)], xs=12, md=8),
+                dbc.Col([section_header("NPS Classes"), dcc.Graph(figure=fig_donut)], xs=12, md=4)
             ]),
             dbc.Row([
-                dbc.Col([section_header("Radar CSAT"), dcc.Graph(figure=fig_radar)], width=4),
-                dbc.Col([section_header("Média CSAT por Dimensão"), dcc.Graph(figure=fig_bar_csat)], width=8)
+                dbc.Col([section_header("Radar CSAT"), dcc.Graph(figure=fig_radar)], xs=12, md=4),
+                dbc.Col([section_header("Média CSAT por Dimensão"), dcc.Graph(figure=fig_bar_csat)], xs=12, md=8)
             ])
         ])
         
@@ -489,10 +524,10 @@ def render_page(pathname, infra, prod, nps_drill):
         if not nps_drill:
             # Level 1
             kpis = dbc.Row([
-                dbc.Col(kpi_card("NPS Geral", f"{overall_nps:+.0f}", nps_color(overall_nps))),
-                dbc.Col(kpi_card("Promotores", f"{prom_cnt}", COLORS['green'])),
-                dbc.Col(kpi_card("Neutros", f"{neut_cnt}", COLORS['amber'])),
-                dbc.Col(kpi_card("Detratores", f"{det_cnt}", COLORS['red']))
+                dbc.Col(kpi_card("NPS Geral", f"{overall_nps:+.0f}", nps_color(overall_nps)), xs=6, md=True),
+                dbc.Col(kpi_card("Promotores", f"{prom_cnt}", COLORS['green']), xs=6, md=True),
+                dbc.Col(kpi_card("Neutros", f"{neut_cnt}", COLORS['amber']), xs=6, md=True),
+                dbc.Col(kpi_card("Detratores", f"{det_cnt}", COLORS['red']), xs=6, md=True)
             ])
             fig_hist = px.histogram(df, x='NPS', color='NPS_Cl', nbins=11, range_x=[-0.5, 10.5], color_discrete_map={'Promotor': COLORS['green'], 'Neutro': COLORS['amber'], 'Detrator': COLORS['red']}, category_orders={"NPS_Cl": ["Detrator", "Neutro", "Promotor"]})
             l_hist = base_layout(h=250)
@@ -525,8 +560,8 @@ def render_page(pathname, infra, prod, nps_drill):
                 html.H2("📈 Análise NPS", style={'fontFamily':'Syne'}),
                 kpis,
                 dbc.Row([
-                    dbc.Col([html.Strong("Histograma"), dcc.Graph(figure=fig_hist)], width=8),
-                    dbc.Col([html.Strong("Gauge"), dcc.Graph(figure=fig_gauge)], width=4)
+                    dbc.Col([html.Strong("Histograma"), dcc.Graph(figure=fig_hist)], xs=12, md=8),
+                    dbc.Col([html.Strong("Gauge"), dcc.Graph(figure=fig_gauge)], xs=12, md=4)
                 ]),
                 section_header("NPS por Produto"),
                 dcc.Graph(figure=fig_stack),
@@ -539,10 +574,10 @@ def render_page(pathname, infra, prod, nps_drill):
             n_p = len(df_p)
             snps = nps_score(df_p['NPS_Cl'])
             kpis = dbc.Row([
-                dbc.Col(kpi_card(f"NPS {nps_drill}", f"{snps:+.0f}", nps_color(snps), f"N={n_p}")),
-                dbc.Col(kpi_card("Promotores", f"{(df_p['NPS_Cl']=='Promotor').sum()}", COLORS['green'])),
-                dbc.Col(kpi_card("Neutros", f"{(df_p['NPS_Cl']=='Neutro').sum()}", COLORS['amber'])),
-                dbc.Col(kpi_card("Detratores", f"{(df_p['NPS_Cl']=='Detrator').sum()}", COLORS['red']))
+                dbc.Col(kpi_card(f"NPS {nps_drill}", f"{snps:+.0f}", nps_color(snps), f"N={n_p}"), xs=6, md=True),
+                dbc.Col(kpi_card("Promotores", f"{(df_p['NPS_Cl']=='Promotor').sum()}", COLORS['green']), xs=6, md=True),
+                dbc.Col(kpi_card("Neutros", f"{(df_p['NPS_Cl']=='Neutro').sum()}", COLORS['amber']), xs=6, md=True),
+                dbc.Col(kpi_card("Detratores", f"{(df_p['NPS_Cl']=='Detrator').sum()}", COLORS['red']), xs=6, md=True)
             ])
             
             fig_hp = px.histogram(df_p, x='NPS', color='NPS_Cl', nbins=11, range_x=[-0.5, 10.5], color_discrete_map={'Promotor': COLORS['green'], 'Neutro': COLORS['amber'], 'Detrator': COLORS['red']})
@@ -575,8 +610,8 @@ def render_page(pathname, infra, prod, nps_drill):
                 html.H2(f"🔍 Drill-down: {nps_drill}", style={'fontFamily':'Syne'}),
                 kpis,
                 dbc.Row([
-                    dbc.Col([html.Strong("Distribuição"), dcc.Graph(figure=fig_hp)]),
-                    dbc.Col([html.Strong("CSAT Produto vs Base"), dcc.Graph(figure=fig_csat_cmp)])
+                    dbc.Col([html.Strong("Distribuição"), dcc.Graph(figure=fig_hp)], xs=12, md=6),
+                    dbc.Col([html.Strong("CSAT Produto vs Base"), dcc.Graph(figure=fig_csat_cmp)], xs=12, md=6)
                 ]),
                 section_header("Voz dos Detratores do Produto"),
                 html.Div(quote_divs if quote_divs else "Nenhum feedback de detrator disponível.", style={'maxHeight':'400px', 'overflowY':'auto'})
@@ -588,7 +623,7 @@ def render_page(pathname, infra, prod, nps_drill):
         for k, colname in csat_map.items():
             valid = df[colname].dropna()
             m = valid.mean() if len(valid) > 0 else 0
-            cols.append(dbc.Col(kpi_card(k, f"{m:.2f}", csat_color(m), f"N={len(valid)}")))
+            cols.append(dbc.Col(kpi_card(k, f"{m:.2f}", csat_color(m), f"N={len(valid)}"), xs=6, md=True))
         kpis = dbc.Row(cols)
         
         hm_data = []
@@ -650,7 +685,6 @@ def render_page(pathname, infra, prod, nps_drill):
     ])
 
 # Callback for Drilldown clicks
-from dash import ctx
 import json
 
 @callback(
@@ -699,14 +733,44 @@ def toggle_button_visibility(is_open):
         base_style['display'] = 'none'
     return base_style
 
-def call_gemini(full_prompt):
+stream_buffers = {}  # {stream_id: {'text': str, 'done': bool}}
+
+def stream_gemini_bg(stream_id, user_message, filter_stats, active_prod, active_infra, history_text):
+    print(f"[DEBUG] stream_gemini_bg started: {stream_id[:8]}", flush=True)
     try:
-        response = gemini_client.models.generate_content(
-            model='gemini-3.1-flash-lite-preview', contents=full_prompt
+        # Estágio 1: buscando contexto via RAG
+        stream_buffers[stream_id]['stage'] = 'rag'
+        hits = rag.retrieve(user_message, gemini_client, rag_index, top_k=6)
+        rag_lines = []
+        for score, doc in hits:
+            meta = doc['meta']
+            outside = meta.get('Produto') not in active_prod or meta.get('Infra') not in active_infra
+            flag = " ⚠️ [fora do filtro ativo]" if outside else ""
+            rag_lines.append(f"[relevância {score:.2f}{flag}] {doc['text']}")
+        rag_context = "\n".join(rag_lines)
+
+        full_prompt = (
+            f"## Estatísticas do filtro ativo\n{filter_stats}\n\n"
+            f"## Respostas mais relevantes da pesquisa (RAG)\n{rag_context}\n\n"
+            f"## Histórico da conversa\n{history_text}\n\n"
+            f"## Pergunta do usuário\n{user_message}"
         )
-        return response.text
+
+        # Estágio 2: gerando resposta com o modelo
+        stream_buffers[stream_id]['stage'] = 'generating'
+        for chunk in gemini_client.models.generate_content_stream(
+            model='gemini-3.1-flash-lite-preview',
+            contents=full_prompt,
+            config=genai_types.GenerateContentConfig(system_instruction=ISA_SYSTEM_PROMPT),
+        ):
+            if chunk.text:
+                stream_buffers[stream_id]['text'] += chunk.text
+        print(f"[DEBUG] stream done: {stream_id[:8]}, text_len={len(stream_buffers[stream_id]['text'])}", flush=True)
     except Exception as e:
-        return f"**(Falha na IA)**: {str(e)}"
+        print(f"[DEBUG] stream error: {e}", flush=True)
+        stream_buffers[stream_id]['text'] = f"**(Falha na IA)**: {str(e)}"
+    finally:
+        stream_buffers[stream_id]['done'] = True
 
 def render_chat(chat_history):
     display_children = []
@@ -727,10 +791,46 @@ def render_chat(chat_history):
         )
     return display_children
 
+STAGE_LABELS = {
+    'rag':        '🔍 Buscando contexto na pesquisa...',
+    'generating': '✍️ Gerando resposta...',
+}
+
+def _status_bubble(label: str):
+    return html.Div(
+        html.Div([
+            html.Span(className='isa-spinner', children=[
+                html.Span(), html.Span(), html.Span()
+            ]),
+            html.Span(label, style={'fontSize': '0.9rem'}),
+        ], className='isa-status', style={
+            'backgroundColor': COLORS['navy'], 'padding': '10px 15px', 'borderRadius': '15px',
+            'border': f"1px solid {COLORS['border']}", 'display': 'inline-block', 'maxWidth': '85%',
+        }),
+        style={'textAlign': 'left', 'marginBottom': '10px'}
+    )
+
+def _thinking_bubble():
+    return _status_bubble("Preparando...")
+
+def _streaming_bubble(text):
+    return html.Div(
+        html.Div([
+            dcc.Markdown(text, style={'margin': '0'}, dangerously_allow_html=True),
+            html.Span("▌", style={'color': COLORS['sub']})
+        ], style={
+            'backgroundColor': COLORS['navy'], 'padding': '10px 15px', 'borderRadius': '15px',
+            'border': f"1px solid {COLORS['border']}", 'display': 'inline-block', 'maxWidth': '85%',
+            'textAlign': 'left', 'color': 'white', 'overflowX': 'auto'
+        }),
+        style={'textAlign': 'left', 'marginBottom': '10px'}
+    )
+
 @callback(
     Output('chat-history', 'data'),
     Output('chat-display', 'children'),
     Output('chat-input', 'value'),
+    Output('stream-id', 'data'),
     Input('chat-send-btn', 'n_clicks'),
     Input('chat-input', 'n_submit'),
     State('chat-input', 'value'),
@@ -741,32 +841,91 @@ def render_chat(chat_history):
 )
 def send_chat(n_clicks, n_submit, user_message, chat_history, infra, prod):
     if not user_message:
-        return dash.no_update, dash.no_update, dash.no_update
+        return dash.no_update, dash.no_update, dash.no_update, dash.no_update
 
     if chat_history is None:
         chat_history = []
 
-    d = df_full[df_full['Infra'].isin(infra) & df_full['Produto'].isin(prod)] if infra and prod else df_full
+    chat_history = chat_history + [{'role': 'user', 'parts': [user_message]}]
+
+    # Filtro ativo
+    active_infra = set(infra) if infra else set(df_full['Infra'].dropna().unique())
+    active_prod  = set(prod)  if prod  else set(df_full['Produto'].dropna().unique())
+    d = df_full[df_full['Infra'].isin(active_infra) & df_full['Produto'].isin(active_prod)]
+
+    # Estatísticas do filtro ativo
     nps_g = nps_score(d['NPS_Cl'])
     total_resp = len(d)
-    produtos = list(d['Produto'].dropna().unique())
+    stats_lines = [f"**Filtro ativo** — {total_resp} respondentes | NPS Geral: {nps_g}"]
+    for prod_name, grp in d.groupby('Produto', observed=True):
+        n = len(grp)
+        prom = (grp['NPS_Cl'] == 'Promotor').sum()
+        neu  = (grp['NPS_Cl'] == 'Neutro').sum()
+        det  = (grp['NPS_Cl'] == 'Detrator').sum()
+        nps_p = nps_score(grp['NPS_Cl'])
+        stats_lines.append(f"- {prod_name}: n={n}, NPS={nps_p}, Promotores={prom}, Neutros={neu}, Detratores={det}")
+    filter_stats = "\n".join(stats_lines)
 
-    context = (f"Seu nome é Isa. Você é a inteligência artificial analisando a pesquisa NPS/CSAT da Sisloc Software. "
-               f"Responda ao usuário com base no contexto filtrado atual: "
-               f"Total de respondentes: {total_resp}. NPS Geral: {nps_g:.0f}. Produtos: {produtos}. "
-               f"Promotores (9-10), Neutros (7-8), Detratores (0-6). Start tem NPS +100. Premium tem NPS negativo (-8). "
-               f"O foco principal dos detratores é Suporte pós-venda e implantação de NFS-e pagas. ")
+    history_text = "\n".join([f"{m['role']}: {m['parts'][0]}" for m in chat_history[:-1]])
 
-    history_text = "\n".join([f"{m['role']}: {m['parts'][0]}" for m in chat_history])
-    full_prompt = f"{context}\n\nHistórico:\n{history_text}\n\nUsuário: {user_message}\n\nResponda como Isa em Markdown:"
+    sid = str(uuid.uuid4())
+    stream_buffers[sid] = {'text': '', 'done': False, 'stage': 'rag'}
+    threading.Thread(
+        target=stream_gemini_bg,
+        args=(sid, user_message, filter_stats, active_prod, active_infra, history_text),
+        daemon=True,
+    ).start()
 
-    resposta = call_gemini(full_prompt)
+    # Feedback imediato: mostra mensagem do usuário + thinking bubble sem esperar o interval
+    return chat_history, render_chat(chat_history) + [_thinking_bubble()], "", sid
 
-    chat_history.append({'role': 'user', 'parts': [user_message]})
-    chat_history.append({'role': 'model', 'parts': [resposta]})
 
-    display = render_chat(chat_history)
-    return chat_history, display, ""
+@callback(
+    Output('chat-display', 'children', allow_duplicate=True),
+    Output('chat-history', 'data', allow_duplicate=True),
+    Input('stream-interval', 'n_intervals'),
+    State('stream-id', 'data'),
+    State('chat-history', 'data'),
+    prevent_initial_call=True
+)
+def poll_stream(n_intervals, stream_id, chat_history):
+    history = chat_history or []
+
+    # Sem stream ativo: não toca em nada (evita sobrescrever com State desatualizado)
+    if not stream_id or stream_id not in stream_buffers:
+        return dash.no_update, dash.no_update
+
+    buf = stream_buffers[stream_id]
+    text = buf['text']
+    done = buf['done']
+    print(f"[DEBUG] poll_stream: sid={stream_id[:8]}, done={done}, text_len={len(text)}", flush=True)
+
+    if done:
+        del stream_buffers[stream_id]
+        final_history = history + [{'role': 'model', 'parts': [text]}]
+        return render_chat(final_history), final_history
+
+    display = render_chat(history)
+    if text:
+        display.append(_streaming_bubble(text))
+    else:
+        stage = buf.get('stage', 'rag')
+        display.append(_status_bubble(STAGE_LABELS.get(stage, 'Preparando...')))
+    return display, history
+
+app.clientside_callback(
+    """
+    function(children) {
+        var el = document.getElementById('chat-display');
+        if (el) {
+            setTimeout(function() { el.scrollTop = el.scrollHeight; }, 30);
+        }
+        return window.dash_clientside.no_update;
+    }
+    """,
+    Output('chat-display', 'data-autoscroll'),
+    Input('chat-display', 'children'),
+)
 
 if __name__ == '__main__':
     app.run(debug=False, host='0.0.0.0', port=8051)
