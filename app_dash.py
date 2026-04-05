@@ -392,6 +392,8 @@ sidebar = html.Div([
         style={'color': '#000'}
     ),
     
+    html.Div(id='cross-filter-badge', style={'marginTop': '1rem'}),
+    dbc.Button("✕ Limpar seleção", id='clear-cross-filter', size="sm", color="warning", style={'display': 'none', 'width': '100%', 'marginTop': '0.5rem'}),
     html.Div(id='respondentes-count', style={'marginTop': '2rem', 'color': '#1565C0', 'fontWeight': 'bold', 'textAlign': 'center'}),
     html.Div(id='sidebar-admin-link'),
     html.A("Sair", href="/logout", style={'display': 'block', 'marginTop': '1rem', 'color': '#4A6080', 'fontSize': '0.85rem', 'textDecoration': 'none', 'textAlign': 'center'})
@@ -424,6 +426,7 @@ app.layout = html.Div([
     dcc.Store(id='chat-history', data=[]),
     dcc.Store(id='stream-id', data=None),
     dcc.Store(id='sidebar-open', data=False),
+    dcc.Store(id='cross-filter', data={}),
     dcc.Interval(id='stream-interval', interval=300, n_intervals=0, disabled=False),
     html.Button("☰", id='hamburger-btn'),
     html.Div(id='sidebar-overlay'),
@@ -476,13 +479,22 @@ def toggle_sidebar(ham_clicks, overlay_clicks, pathname, is_open):
 
 @callback(
     Output('page-content', 'children'),
-    [Input('url', 'pathname'), Input('filter-infra', 'value'), Input('filter-prod', 'value'), Input('nps-drill-state', 'data')]
+    [Input('url', 'pathname'), Input('filter-infra', 'value'), Input('filter-prod', 'value'),
+     Input('cross-filter', 'data'), Input('nps-drill-state', 'data')]
 )
-def render_page(pathname, infra, prod, nps_drill):
+def render_page(pathname, infra, prod, cross_filter, nps_drill):
     if not infra or not prod:
         return html.Div("Selecione os filtros na barra lateral.", style={'color': COLORS['red']})
     
     df = df_full[df_full['Infra'].isin(infra) & df_full['Produto'].isin(prod)].copy()
+
+    # Aplicar cross-filter (cliques nos gráficos)
+    cf = cross_filter or {}
+    if cf.get('Produto'):
+        df = df[df['Produto'] == cf['Produto']]
+    if cf.get('NPS_Cl'):
+        df = df[df['NPS_Cl'] == cf['NPS_Cl']]
+
     N_total = len(df)
     
     overall_nps = nps_score(df['NPS_Cl'])
@@ -540,12 +552,12 @@ def render_page(pathname, infra, prod, nps_drill):
             html.H2("📊 Visão Geral Executiva", style={'fontFamily':'Syne'}),
             kpis,
             dbc.Row([
-                dbc.Col([section_header("NPS por Produto"), dcc.Graph(figure=fig_nps_prod)], xs=12, md=8),
-                dbc.Col([section_header("NPS Classes"), dcc.Graph(figure=fig_donut)], xs=12, md=4)
+                dbc.Col([section_header("NPS por Produto"), dcc.Graph(id={'type': 'cf-graph', 'index': 'nps-prod'}, figure=fig_nps_prod)], xs=12, md=8),
+                dbc.Col([section_header("NPS Classes"), dcc.Graph(id={'type': 'cf-graph', 'index': 'donut'}, figure=fig_donut)], xs=12, md=4)
             ]),
             dbc.Row([
                 dbc.Col([section_header("Radar CSAT"), dcc.Graph(figure=fig_radar)], xs=12, md=4),
-                dbc.Col([section_header("Média CSAT por Dimensão"), dcc.Graph(figure=fig_bar_csat)], xs=12, md=8)
+                dbc.Col([section_header("Média CSAT por Dimensão"), dcc.Graph(id={'type': 'cf-graph', 'index': 'csat-bar'}, figure=fig_bar_csat)], xs=12, md=8)
             ])
         ])
         
@@ -593,7 +605,7 @@ def render_page(pathname, infra, prod, nps_drill):
                     dbc.Col([html.Strong("Gauge"), dcc.Graph(figure=fig_gauge)], xs=12, md=4)
                 ]),
                 section_header("NPS por Produto"),
-                dcc.Graph(figure=fig_stack),
+                dcc.Graph(id={'type': 'cf-graph', 'index': 'nps-stack'}, figure=fig_stack),
                 section_header("Selecione um produto para Drill-down"),
                 drill_buttons
             ])
@@ -670,7 +682,7 @@ def render_page(pathname, infra, prod, nps_drill):
             html.H2("⭐ Análise CSAT (Geral)", style={'fontFamily':'Syne'}),
             kpis,
             dbc.Row([
-                dbc.Col([html.Strong("Heatmap Produto x Dimensão"), dcc.Graph(figure=fig_hm)], width=12)
+                dbc.Col([html.Strong("Heatmap Produto x Dimensão"), dcc.Graph(id={'type': 'cf-graph', 'index': 'csat-hm'}, figure=fig_hm)], width=12)
             ])
         ])
         
@@ -692,7 +704,7 @@ def render_page(pathname, infra, prod, nps_drill):
         return html.Div([
             html.H2("🚨 Análise de Risco (Detratores)", style={'fontFamily':'Syne'}),
             dbc.Row(dbc.Col(kpi_card("Total Detratores", f"{n_det}", COLORS['red']))),
-            dbc.Row(dbc.Col([html.Strong("Concentração por Produto"), dcc.Graph(figure=fig_tm)], width=12)),
+            dbc.Row(dbc.Col([html.Strong("Concentração por Produto"), dcc.Graph(id={'type': 'cf-graph', 'index': 'treemap'}, figure=fig_tm)], width=12)),
             section_header("Voz dos Detratores"),
             html.Div(quote_divs)
         ])
@@ -740,6 +752,93 @@ def handle_drill(drill_clicks, current_state):
 )
 def handle_back(n_clicks):
     return None
+
+@callback(
+    Output('cross-filter', 'data'),
+    Input({'type': 'cf-graph', 'index': dash.ALL}, 'clickData'),
+    State({'type': 'cf-graph', 'index': dash.ALL}, 'id'),
+    State('cross-filter', 'data'),
+    prevent_initial_call=True
+)
+def update_cross_filter(all_clicks, all_ids, current_cf):
+    if not ctx.triggered:
+        return {}
+    triggered_prop = ctx.triggered[0]['prop_id']
+    if not triggered_prop or 'cf-graph' not in triggered_prop:
+        return current_cf or {}
+
+    # Encontrar qual gráfico foi clicado
+    click_data = ctx.triggered[0]['value']
+    if not click_data or not click_data.get('points'):
+        return {}
+
+    try:
+        import json as _json
+        graph_id = _json.loads(triggered_prop.split('.')[0])['index']
+    except Exception:
+        return {}
+
+    point = click_data['points'][0]
+    cf = current_cf or {}
+
+    if graph_id == 'nps-prod':
+        val = point.get('y')
+        # toggle: clicar no mesmo deseleciona
+        new_cf = {} if cf.get('Produto') == val else {'Produto': val}
+    elif graph_id == 'donut':
+        label_map = {'Promotores': 'Promotor', 'Neutros': 'Neutro', 'Detratores': 'Detrator'}
+        val = label_map.get(point.get('label', ''))
+        new_cf = {} if cf.get('NPS_Cl') == val else {'NPS_Cl': val}
+    elif graph_id in ('nps-stack',):
+        val = point.get('y')
+        new_cf = {} if cf.get('Produto') == val else {'Produto': val}
+    elif graph_id == 'csat-hm':
+        val = point.get('y')
+        new_cf = {} if cf.get('Produto') == val else {'Produto': val}
+    elif graph_id == 'treemap':
+        val = point.get('label') or point.get('id', '').split('/')[-1]
+        new_cf = {} if cf.get('Produto') == val else {'Produto': val}
+    elif graph_id == 'csat-bar':
+        # CSAT bar mostra dimensões, não Produto — não filtra
+        return current_cf or {}
+    else:
+        return current_cf or {}
+
+    return new_cf
+
+
+@callback(
+    Output('cross-filter', 'data', allow_duplicate=True),
+    Input('clear-cross-filter', 'n_clicks'),
+    prevent_initial_call=True
+)
+def clear_cross_filter(_):
+    return {}
+
+
+@callback(
+    Output('clear-cross-filter', 'style'),
+    Output('cross-filter-badge', 'children'),
+    Input('cross-filter', 'data')
+)
+def update_cross_filter_ui(cf):
+    cf = cf or {}
+    if not cf:
+        return {'display': 'none', 'width': '100%', 'marginTop': '0.5rem'}, None
+
+    parts = []
+    if cf.get('Produto'):
+        parts.append(f"Produto: {cf['Produto']}")
+    if cf.get('NPS_Cl'):
+        parts.append(f"Classe: {cf['NPS_Cl']}")
+
+    badge = html.Div([
+        html.Div("Seleção ativa:", style={'color': '#E65100', 'fontSize': '0.75rem', 'textTransform': 'uppercase', 'fontWeight': 'bold', 'marginBottom': '0.25rem'}),
+        html.Div(" • ".join(parts), style={'color': '#E8EDF2', 'fontSize': '0.85rem'})
+    ], style={'backgroundColor': '#1a2a1a', 'border': '1px solid #E65100', 'borderRadius': '6px', 'padding': '0.5rem'})
+
+    return {'display': 'block', 'width': '100%', 'marginTop': '0.5rem'}, badge
+
 
 @callback(
     Output("chat-offcanvas", "is_open"),
