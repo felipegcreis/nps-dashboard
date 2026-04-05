@@ -17,9 +17,9 @@ CSAT_LABELS = {
 def build_document(row: dict) -> str:
     """Cria representação textual rica de uma resposta da pesquisa."""
     parts = []
+    parts.append(f"Cliente: {row.get('Cliente', 'N/A')}")
     parts.append(f"Produto: {row.get('Produto', 'N/A')}")
     parts.append(f"Infra: {row.get('Infra', 'N/A')}")
-    parts.append(f"Cloud: {row.get('Cloud(S/N)', 'N/A')}")
     parts.append(f"NPS: {row.get('NPS_Cl', 'N/A')} (nota {row.get('NPS', 'N/A')})")
 
     for col, nome in CSAT_LABELS.items():
@@ -33,7 +33,7 @@ def build_document(row: dict) -> str:
         ('Uma_Melhoria', 'Principal melhoria'),
     ]:
         val = row.get(campo)
-        if val:
+        if val and str(val) != 'nan':
             parts.append(f"{label}: {val}")
 
     return " | ".join(parts)
